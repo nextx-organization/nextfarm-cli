@@ -2,7 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import { setBrand } from "../src/core/brand.js";
+import { brand, setBrand } from "../src/core/brand.js";
+
+const onDefaultPlatform = () => { setBrand("nextx"); return brand().platform === "nextx"; };
 
 test("bản nextfarm: không chữ NextX/CRM, có lệnh nông nghiệp, không có lệnh riêng NextX", async () => {
   setBrand("nextfarm");
@@ -30,6 +32,18 @@ test("đổi khoá snake/camel chỉ cho dịch vụ snake của NextFarm, trừ
   assert.deepEqual(snakeKeys({ workspaceId: "w", eventTypes: ["a"], nested: [{ fullName: "B" }] }), { workspace_id: "w", event_types: ["a"], nested: [{ full_name: "B" }] });
   assert.deepEqual(camelKeys({ pre_auth_token: "t", workspaces: [{ primary_group_name: "owner" }] }), { preAuthToken: "t", workspaces: [{ primaryGroupName: "owner" }] });
   setBrand("nextx");
+});
+
+test("làm mới phiên gửi refresh_token với NextFarm (IAM bỏ qua refreshToken ⇒ 401 ⇒ CLI xoá phiên)", async () => {
+  const { refreshBody } = await import("../src/auth/session.js");
+  setBrand("nextfarm");
+  assert.equal(refreshBody("https://api-dev.nextfarm.vn/api/v1/iam/auth/refresh-token", "r"), '{"refresh_token":"r"}');
+  setBrand("nextx");
+});
+
+test("NextX làm mới phiên vẫn gửi refreshToken", { skip: !onDefaultPlatform() }, async () => {
+  const { refreshBody } = await import("../src/auth/session.js");
+  assert.equal(refreshBody("https://api.nextx.vn/api/v1/iam/auth/refresh-token", "r"), '{"refreshToken":"r"}');
 });
 
 test("mức rủi ro NextFarm theo từng dòng: thiết bị, tiền, ghi lớn, thường", async () => {

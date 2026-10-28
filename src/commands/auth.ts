@@ -32,7 +32,7 @@ function printLogin(r: LoginResult): void {
   const p = getProfile(context().profile);
   ok(tr(`Đã đăng nhập ${c.bold(r.userName ?? "")} (${r.userEmail ?? ""})`, `Logged in as ${c.bold(r.userName ?? "")} (${r.userEmail ?? ""})`));
   info(`  ${tr("Workspace", "Workspace")}  ${c.bold(r.workspaceName ?? p?.workspaceName ?? "")}  · ${context().env === "prod" ? "prod" : c.yellow("sandbox")}`);
-  info(`  ${tr("Phiên", "Session")}      ${tr("tự gia hạn khi dùng, hết hạn nếu bỏ không 30 ngày", "renews while used, expires after 30 idle days")} · ${storageKind() === "keychain" ? "Keychain" : tr("tệp 0600", "0600 file")}`);
+  info(`  ${tr("Phiên", "Session")}      ${r.session.via === "ci" ? tr("15 phút, không gia hạn — hết thì đăng nhập CI lại", "15 minutes, no renewal — logs in again through CI when it ends") : tr("tự gia hạn khi dùng, hết hạn nếu bỏ không 30 ngày", "renews while used, expires after 30 idle days")} · ${storageKind() === "keychain" ? "Keychain" : tr("tệp 0600", "0600 file")}`);
   info(c.dim(`  ${tr("Thử", "Try")}: ${brand().bin}  ·  ${brand().bin} -p "${tr(brand().example.vi, brand().example.en)}"  ·  ${brand().bin} help`));
 }
 

@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: npx -y ${b.pkg} login --ci --workspace ${ws}
-      - run: npx -y ${b.pkg} -p "doanh thu tuần này theo chi nhánh" --json > report.json`;
+      - run: npx -y ${b.pkg} -p "${tr(b.example.vi, b.example.en)}" --json > report.json`;
 }
 
 export function registerCi(program: Command): void {

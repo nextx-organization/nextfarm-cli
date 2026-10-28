@@ -57,9 +57,14 @@ const tsHeader = () => (farm() ? "x-nextfarm-timestamp" : "x-nextx-timestamp");
 
 export async function eventTypes(): Promise<EventType[]> {
   if (!farm()) return get<EventType[]>("/webhook/public/event-types", { anonymous: true });
-  // NextFarm: { version, envelope, events: [{ event, group, title, titleEn, description, descriptionEn, scope, payloadSchema, example }] }
-  const r = await get<{ events: (EventType & { group: string; titleEn?: string; scope?: string })[] }>("/webhook/public/event-types", { anonymous: true });
-  return r.events.map((e) => ({ ...e, service: e.group, title: currentLang() === "en" ? e.titleEn ?? e.title : e.title, planRequired: e.scope }));
+  // NextFarm: { version, envelope, events: [{ event, group, title, title_en, description, description_en, scope, payload_schema, example }] },
+  // read verbatim so payload field names in the schema and example stay snake_case as delivered.
+  type Raw = { event: string; group: string; title: string; title_en?: string; description?: string; description_en?: string; scope?: string; payload_schema?: unknown; example?: unknown };
+  const r = await get<{ events: Raw[] }>("/webhook/public/event-types", { anonymous: true, verbatim: true });
+  return r.events.map((e) => ({
+    event: e.event, service: e.group, title: currentLang() === "en" ? e.title_en ?? e.title : e.title, description: e.description,
+    descriptionEn: e.description_en, planRequired: e.scope, payloadSchema: e.payload_schema, example: e.example,
+  }));
 }
 
 /** NextFarm endpoints carry `eventTypes` and no single module. */

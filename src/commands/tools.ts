@@ -26,8 +26,19 @@ export interface PublicTool {
 let publicCache: PublicTool[] | undefined;
 
 export async function publicTools(): Promise<PublicTool[]> {
-  publicCache ??= (await get<PublicTool[]>("/ai/public/tools", { anonymous: true })).filter((t) => !brand().modules || brand().modules!.includes(t.module));
+  publicCache ??= (brand().platform === "nextfarm" ? await nextFarmPublicTools() : await get<PublicTool[]>("/ai/public/tools", { anonymous: true }))
+    .filter((t) => !brand().modules || brand().modules!.includes(t.module));
   return publicCache;
+}
+
+/** NextFarm: `{ version, tools: [{ name, service, scope, title, title_en, summary, summary_en, parameters, example_args }] }`, read verbatim so schema property names stay as the tool expects them. */
+async function nextFarmPublicTools(): Promise<PublicTool[]> {
+  type Raw = { name: string; service: string; scope?: string; title?: string; summary?: string; summary_en?: string; parameters?: PublicTool["parameters"]; example_args?: Record<string, unknown> };
+  const r = await get<{ tools: Raw[] }>("/ai/public/tools", { anonymous: true, verbatim: true });
+  return r.tools.map((t) => ({
+    name: t.name, module: t.service, title: t.title, summary: t.summary, summaryEn: t.summary_en, scope: t.scope,
+    kind: t.scope?.endsWith(":write") ? "write" : "read", parameters: t.parameters, exampleArgs: t.example_args,
+  }));
 }
 
 /** MCP names may differ from catalog names (module prefix, dots); match loosely. */

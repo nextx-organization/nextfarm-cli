@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- Fix: the session no longer ends after 15 minutes. Refreshing the login sent the token under a key the NextFarm server ignores, so the CLI asked you to log in again.
+- `nextfarm login --device`: log in on a machine with neither a browser nor the NextFarm app — enter the 8-letter code at id.nextfarm.vn/oauth/device on any other device.
+- `nextfarm login --ci`: GitHub Actions and GitLab CI log in with the provider's OIDC token, no secret in the repository. Allow a repository and branch in the web app under Manage › API keys; each run gets a 15-minute session in your name. `nextfarm ci trust add|list|revoke` and `nextfarm ci example`.
+- `nextfarm mcp serve --stdio` runs with `NEXTFARM_API_KEY` alone, so other assistants can use your farm tools without a login.
+- `nextfarm api --help` shows a NextFarm request as its example.
+
 ## 0.1.0
 
 First release.

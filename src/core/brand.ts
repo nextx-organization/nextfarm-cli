@@ -40,8 +40,12 @@ export interface Brand {
   mobileApp: string;
   /** A typical first question, shown in hints. */
   example: { vi: string; en: string };
+  /** A real request for `api --help`, valid on this brand's gateway. */
+  apiExample: string;
   /** Sign-in methods the brand's server does not offer yet; the CLI says so instead of failing mid-flow. */
   notYet?: ("device" | "ci")[];
+  /** Where an admin allows a CI repository, after the web app address. */
+  ciSettings: { vi: string; en: string };
   /** Modules this brand exposes. null = all. */
   modules: string[] | null;
   env: Record<EnvName, Endpoints>;
@@ -61,7 +65,9 @@ const NEXTFARM: Brand = {
   envPrefix: "NEXTFARM",
   mobileApp: "NextFarm",
   example: { vi: "lô nào sắp thu hoạch tuần này", en: "which plots are due for harvest this week" },
-  notYet: ["device", "ci"],
+  apiExample: "GET /gis/parcels -f page_size=5",
+  notYet: [],
+  ciSettings: { vi: "Quản lý › Khoá API › CI đăng nhập không cần khoá", en: "Manage › API keys › CI login without keys" },
   modules: null,
   env: {
     prod: {
