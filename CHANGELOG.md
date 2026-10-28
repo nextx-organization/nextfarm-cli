@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- CI writes under a pre-approval policy. A `nextfarm login --ci` run now applies a proposed farm write on its own when a policy of that repository covers every line, has room under its record ceiling and has not expired (30 days at most); otherwise nothing is written and the run prints the link to confirm, as before. The server enforces this, not the CLI. Devices, irrigation, money and high-risk lines always need a person in the app. With `--json`, the result is under `proposals[0].applied`.
+- `nextfarm ci policy request|list|show|revoke|kinds`. A request waits for someone who manages API keys; with that permission, `--approve` makes it active at once. Policies are also managed in the web app under Manage › API keys.
+- Irrigation runs and irrigation schedule changes are treated as device actions: they are confirmed in the app only.
+- `nextfarm -p` exits 0 when the proposed write went through in that run; exit 7 now means a write is still waiting for confirmation.
+
 ## 0.2.0
 
 - Fix: the session no longer ends after 15 minutes. Refreshing the login sent the token under a key the NextFarm server ignores, so the CLI asked you to log in again.

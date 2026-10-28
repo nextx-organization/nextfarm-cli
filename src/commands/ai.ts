@@ -20,6 +20,7 @@ import { LocalChat } from "../ai/local.js";
 import { mcpToken } from "../auth/mcp-oauth.js";
 import { defaultModel, resolveModel, type ResolvedModel } from "../ai/models.js";
 import { registerAiNextFarm } from "./ai-nextfarm.js";
+import * as nf from "../ai/nextfarm.js";
 
 // ── NEXTX.md ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -90,10 +91,31 @@ export function proposalCard(a: ProposedAction): string[] {
 }
 
 /**
+ * NextFarm session from `login --ci` with no terminal: the server, not the CLI, decides whether a write goes through
+ * (pre-approval policy of that CI trust). The default platform gates CI writes per trust scope instead (ci trust set --allow, below).
+ */
+function ciPolicyApplies(): boolean {
+  return brand().platform === "nextfarm" && !hasTty() && nf.isCiSession();
+}
+
+/**
  * Decides and, when allowed, executes a proposed write. Returns true if it was written.
  * Rules (docs §2.6): read mode never writes; finance never from the terminal; no TTY ⇒ never;
  * large writes need the typed number; auto mode skips the y/N for normal writes only.
  */
+/** Thẻ đăng nhập CI (login --ci): không có người bấm, máy chủ quyết theo phạm vi quản trị duyệt trước (ci trust set --allow). */
+async function isCiSession(): Promise<boolean> {
+  const { currentAuth } = await import("../auth/session.js");
+  const a = await currentAuth().catch(() => undefined);
+  return a?.kind === "session" && a.session.via === "ci";
+}
+
+/** 403 của cổng ghi CI ⇒ việc chưa ghi, đề xuất còn chờ người duyệt — báo rõ, không coi là lỗi chương trình. */
+function ciDenied(e: unknown): string | undefined {
+  const err = e as CliError;
+  return err instanceof CliError && err.exitCode === Exit.forbidden ? err.message : undefined;
+}
+
 export async function handleProposal(sessionId: string, a: ProposedAction, mode = context().mode): Promise<{ written: boolean; message?: string }> {
   if (!a.writes) {
     const r = await confirmAction(sessionId, a);
@@ -113,6 +135,30 @@ export async function handleProposal(sessionId: string, a: ProposedAction, mode 
     return { written: false };
   }
   if (!hasTty()) {
+    if (ciPolicyApplies()) {
+      const r = await nf.applyUnderCiPolicy(a);
+      if (r.written) ok(tr(`${r.message} (chính sách duyệt trước của CI)`, `${r.message} (CI pre-approval policy)`));
+      else if (r.blocked) {
+        info(tr(`  Chưa ghi: ${r.message}`, `  Not written: ${r.message}`));
+        info(c.dim(tr(`  Xác nhận trong app hoặc: ${resume} · cho CI tự ghi: ${brand().bin} ci policy request`,
+          `  Confirm in the app or: ${resume} · let CI write: ${brand().bin} ci policy request`)));
+      } else warn(r.message);
+      return { written: r.written, message: r.message };
+    }
+    // CI + --mode auto: gửi Xác nhận, máy chủ chỉ ghi trong phạm vi quản trị đã duyệt trước cho kho này.
+    if (brand().platform !== "nextfarm" && mode === "auto" && (await isCiSession())) {
+      try {
+        const r = await confirmAction(sessionId, a);
+        if (r.success) ok(r.message || tr("Đã ghi (CI, trong phạm vi duyệt trước).", "Written (CI, within the pre-approved scope)."));
+        else warn(r.message);
+        return { written: r.success, message: r.message };
+      } catch (e) {
+        const why = ciDenied(e);
+        if (!why) throw e;
+        info(`  ${c.yellow("⚠")} ${why}`);
+        return { written: false, message: why };
+      }
+    }
     info(tr(`  Chưa ghi. Xác nhận trong 15 phút: ${c.bold(resume)}`, `  Not written. Confirm within 15 minutes: ${c.bold(resume)}`));
     return { written: false };
   }
@@ -232,7 +278,24 @@ async function printAsk(o: RootFlags, question: string, piped: string): Promise<
   updateProfile(context().profile, { lastConversation: conversationId });
 
   const proposal = outcome.proposedAction;
+  // Written in this run (CI pre-approval, or confirmed at the prompt) ⇒ nothing is left to confirm, exit 0.
+  let written = false;
   if (fmt === "json") {
+    const risk = proposal ? riskOf(proposal) : undefined;
+    const allowedRisk = context().mode !== "read" && risk !== "finance" && risk !== "device";
+    const applied = proposal?.writes && ciPolicyApplies() && allowedRisk
+      ? await nf.applyUnderCiPolicy(proposal)
+      // Nền tảng mặc định: phiên CI + --mode auto ⇒ gửi Xác nhận, máy chủ gác theo phạm vi ci trust (403 ⇒ chưa ghi, kèm lý do).
+      : proposal?.writes && brand().platform !== "nextfarm" && allowedRisk && context().mode === "auto" && !hasTty() && (await isCiSession())
+        ? await confirmAction(conversationId, proposal).then(
+            (r) => ({ written: r.success, message: r.message }),
+            (e: unknown) => {
+              const why = ciDenied(e);
+              if (!why) throw e;
+              return { written: false, message: why };
+            })
+        : undefined;
+    written = applied?.written ?? false;
     json({
       conversationId,
       runId: outcome.runId ?? null,
@@ -243,7 +306,8 @@ async function printAsk(o: RootFlags, question: string, piped: string): Promise<
       notices: outcome.notices,
       agent: outcome.agent ?? null,
       proposals: proposal ? [{ kind: proposal.kind, label: proposal.label, prompt: proposal.confirmPrompt, writes: proposal.writes, expiresAt: proposal.expiresAt ?? null, risk: riskOf(proposal),
-        confirm: brand().platform === "nextfarm" ? `${brand().bin} ai apply ${proposal.nonce}` : `${brand().bin} -r ${conversationId}` }] : [],
+        confirm: brand().platform === "nextfarm" ? `${brand().bin} ai apply ${proposal.nonce}` : `${brand().bin} -r ${conversationId}`,
+        ...(applied ? { applied: { written: applied.written, message: applied.message } } : {}) }] : [],
       workspace: getProfile(context().profile)?.workspaceCode ?? null,
       env: context().env,
       ended: outcome.ended,
@@ -255,11 +319,11 @@ async function printAsk(o: RootFlags, question: string, piped: string): Promise<
     for (const l of renderBlocks(outcome.done?.blocks?.filter((b) => b.type !== "text"))) stdout.write(`${l}\n`);
     if (proposal) {
       for (const l of proposalCard(proposal)) stderr.write(`${l}\n`);
-      await handleProposal(conversationId, proposal);
+      written = (await handleProposal(conversationId, proposal)).written;
     }
   }
   if (outcome.notices.some((n) => n.code === "ai_not_purchased")) process.exitCode = Exit.forbidden;
-  else if (proposal?.writes) process.exitCode = Exit.notConfirmed;
+  else if (proposal?.writes && !written) process.exitCode = Exit.notConfirmed;
   else if (outcome.ended === "error") process.exitCode = Exit.general;
 }
 
@@ -427,11 +491,14 @@ export function registerAi(program: Command): void {
       await requirePerson();
       const head = await findChangeset(id);
       if (context().mode === "read") throw new CliError(tr("Chế độ chỉ đọc.", "Read-only mode."), Exit.forbidden);
-      if (!hasTty()) throw new CliError(tr("Áp dụng bản nháp cần terminal tương tác (hoặc chính sách duyệt trước).", "Applying needs an interactive terminal (or a pre-approval policy)."), Exit.notConfirmed);
+      const ci = !hasTty() && (await isCiSession());
+      if (!hasTty() && !ci) throw new CliError(tr("Áp dụng bản nháp cần terminal tương tác (hoặc đăng nhập CI có phạm vi duyệt trước).", "Applying needs an interactive terminal (or a CI login with a pre-approved scope)."), Exit.notConfirmed);
       const env = context().env === "prod" ? c.red("PROD") : c.yellow("SANDBOX");
       info(`${c.bold(head.title)} · ${env}`);
-      const yes = head.risk >= 3 ? await confirmTyped("", tr("dong-y", "confirm")) : await confirm(tr("Áp dụng?", "Apply?"));
-      if (!yes) return void info(tr("Không ghi gì.", "Nothing written."));
+      if (!ci) {
+        const yes = head.risk >= 3 ? await confirmTyped("", tr("dong-y", "confirm")) : await confirm(tr("Áp dụng?", "Apply?"));
+        if (!yes) return void info(tr("Không ghi gì.", "Nothing written."));
+      }
       const r = await post<Record<string, unknown>>(`/ai/changesets/${head.id}/apply`, undefined, { query: { expectedVersion: head.version } });
       emit(r, () => ok(tr(`Đã áp dụng · hoàn tác: ${brand().bin} ai undo ${short(head.id)}`, `Applied · undo: ${brand().bin} ai undo ${short(head.id)}`)));
     });

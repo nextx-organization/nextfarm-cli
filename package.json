@@ -1,6 +1,6 @@
 {
   "name": "nextfarm",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "NextFarm in your terminal: chat with NextFarm AI on your workspace data, call the API, manage keys and webhooks",
   "keywords": [
     "nextfarm",

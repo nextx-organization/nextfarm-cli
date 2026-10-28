@@ -99,10 +99,10 @@ function keyFor(p: Provider): string | undefined {
   return (env && process.env[env]) || readSecret(`model:${p}`);
 }
 
-/** "nextx" (or the AI's own name) means the platform assistant: returns undefined. */
+/** The CLI's own command name (or "default") means the platform assistant: returns undefined. */
 export function resolveModel(spec: string): ResolvedModel | undefined {
   const s = spec.trim();
-  if (!s || s === "nextx" || s === brand().bin || s === "default") return undefined;
+  if (!s || s === brand().bin || s === "default") return undefined;
   const slash = s.indexOf("/");
   const head = slash < 0 ? s : s.slice(0, slash);
   const name = slash < 0 ? undefined : s.slice(slash + 1);

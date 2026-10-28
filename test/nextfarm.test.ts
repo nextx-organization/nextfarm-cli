@@ -53,7 +53,21 @@ test("mức rủi ro NextFarm theo từng dòng: thiết bị, tiền, ghi lớn
   assert.equal(riskOfNextFarm("farm.entries", { core: { entries: [{ kind: "cash" }] } }), "finance");
   assert.equal(riskOfNextFarm("farm.entries", { entries: Array.from({ length: 21 }, () => ({ kind: "field_log" })) }), "large");
   assert.equal(riskOfNextFarm("farm.entries", { entries: [{ kind: "season_close" }] }), "large");
-  assert.equal(riskOfNextFarm("farm.entries", { entries: [{ kind: "irrigation_run" }] }), "normal");
+  assert.equal(riskOfNextFarm("farm.entries", { entries: [{ kind: "irrigation_run" }] }), "device");
+  assert.equal(riskOfNextFarm("farm.entries", { entries: [{ kind: "schedule_shift" }] }), "device");
+  assert.equal(riskOfNextFarm("farm.entries", { entries: [{ kind: "harvest" }] }), "normal");
+});
+
+test("ci policy chỉ có ở bản NextFarm; CI tự ghi chỉ khi phiên login --ci và không có terminal", async () => {
+  setBrand("nextfarm");
+  const { buildProgram } = await import("../src/program.js");
+  const ci = buildProgram().commands.find((x) => x.name() === "ci")!;
+  const policy = ci.commands.find((x) => x.name() === "policy");
+  assert.ok(policy, "thiếu ci policy");
+  assert.deepEqual(policy!.commands.map((x) => x.name()).sort(), ["kinds", "list", "request", "revoke", "show"]);
+  const { isCiSession } = await import("../src/ai/nextfarm.js");
+  assert.equal(isCiSession(), false);
+  setBrand("nextx");
 });
 
 test("hạn mức tuần mở lại 00:00 thứ Hai giờ Việt Nam", async () => {

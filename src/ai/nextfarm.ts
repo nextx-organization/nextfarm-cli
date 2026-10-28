@@ -9,6 +9,8 @@ import { FormData } from "undici";
 import { get, post, patch, del, requestRaw, errorFor } from "../core/http.js";
 import { CliError, Exit } from "../core/errors.js";
 import { currentLang, tr } from "../core/i18n.js";
+import { context } from "../core/context.js";
+import { readSession } from "../auth/credentials.js";
 import type {
   ActivityDto, AnswerBlock, AskInput, AskOutcome, Attachment, ConfirmResult, Conversation, InitResult, ProposedAction, Risk, StreamChunk,
 } from "./client.js";
@@ -286,10 +288,13 @@ function entriesOf(v: unknown): Json[] {
   return [];
 }
 
+/** Lines that run pumps or move irrigation schedules without the iot_ prefix — the server treats them as device actions too. */
+const DEVICE_KINDS = new Set(["irrigation_run", "schedule_skip", "schedule_shift", "schedule_create", "alert_resolve"]);
+
 export function riskOfNextFarm(actionType: string, proposal: unknown): Risk {
   if (/^(automation|iot|drone)\./.test(actionType)) return "device";
   const kinds = kindsOf(proposal);
-  if (kinds.some((k) => k.startsWith("iot_"))) return "device";
+  if (kinds.some((k) => k.startsWith("iot_") || DEVICE_KINDS.has(k))) return "device";
   if (kinds.some((k) => FINANCE_KINDS.has(k))) return "finance";
   if (entriesOf(proposal).length > 20 || kinds.some((k) => /close|return|delete|remove/.test(k))) return "large";
   return "normal";
@@ -330,6 +335,25 @@ export async function confirmAction(_sessionId: string, a: ProposedAction): Prom
       ? tr(`Đã ghi ${ok || lines.length} mục${failed ? `, ${failed} mục lỗi — xem trong app` : ""}.`, `Wrote ${ok || lines.length} entries${failed ? `, ${failed} failed — check the app` : ""}.`)
       : tr(`Chưa ghi được (${[execution || "không rõ", ...codes].join(" · ")}).`, `Not written (${[execution || "unknown", ...codes].join(" · ")}).`);
   return { success, message, messageId: a.nonce, kind: a.kind, writes: true };
+}
+
+/**
+ * CI without a person at the keyboard (`login --ci`): ask the server to apply the proposal. The server decides — it writes only
+ * when a pre-approval policy of this CI trust covers every line and still has room; otherwise 403 and nothing is written.
+ */
+export async function applyUnderCiPolicy(a: ProposedAction): Promise<{ written: boolean; message: string; blocked?: boolean }> {
+  try {
+    const r = await confirmAction("", a);
+    return { written: r.success, message: r.message ?? "" };
+  } catch (e) {
+    if (e instanceof CliError && e.exitCode === Exit.forbidden) return { written: false, message: e.message, blocked: true };
+    throw e;
+  }
+}
+
+/** This profile's session came from `login --ci`. */
+export function isCiSession(): boolean {
+  return readSession(context().profile)?.via === "ci";
 }
 
 export async function rejectAction(proposalId: string): Promise<void> {

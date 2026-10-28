@@ -126,14 +126,15 @@ test("thời hạn khoá: 90d, 6m, sai cú pháp", () => {
   assert.throws(() => parseDuration("mai"), (e: { exitCode: number }) => e.exitCode === 2);
 });
 
-test("--model: tên nhà, nhà/model, nextx = Trợ lý; thiếu khoá/tên model báo cách sửa", async () => {
+test("--model: tên nhà, nhà/model, tên lệnh = Trợ lý; thiếu khoá/tên model báo cách sửa", async () => {
   const { mkdtempSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), "nx-model-"));
   process.env.NEXTX_NO_KEYCHAIN = "1";
   const { resolveModel } = await import("../src/ai/models.js");
-  assert.equal(resolveModel("nextx"), undefined);
+  const { brand } = await import("../src/core/brand.js");
+  assert.equal(resolveModel(brand().bin), undefined);
   process.env.ANTHROPIC_API_KEY = "k";
   assert.equal(resolveModel("claude")?.model, "claude-opus-5-5");
   assert.equal(resolveModel("claude/claude-sonnet-5-5")?.label, "claude/claude-sonnet-5-5");
