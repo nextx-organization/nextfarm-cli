@@ -1,0 +1,148 @@
+# Tag vX.Y.Z (pushed by the source pipeline) ⇒ standalone binaries for 5 platforms, GitHub release with SHA256SUMS,
+# npm with provenance (when PUBLISH_ENABLED), Homebrew formula + Scoop manifest (when TAP_ENABLED).
+name: release
+on:
+  push:
+    tags: ["v*"]
+  # Re-run only the npm publish for an existing tag (first publish, registry outage). Must stay in this file: npm's
+  # trusted publisher is bound to release.yml.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag, e.g. v0.1.1"
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.TAG }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - name: Tag matches package.json
+        run: test "v$(node -p 'require("./package.json").version')" = "${TAG}"
+
+  binaries:
+    needs: test
+    if: github.event_name == 'push'
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { target: bun-darwin-arm64, os: darwin, arch: arm64, runner: macos-14 }
+          - { target: bun-darwin-x64-baseline, os: darwin, arch: x64, runner: macos-14 }
+          - { target: bun-linux-x64-baseline, os: linux, arch: x64, runner: ubuntu-latest }
+          - { target: bun-linux-arm64, os: linux, arch: arm64, runner: ubuntu-latest }
+          - { target: bun-windows-x64-baseline, os: windows, arch: x64, runner: ubuntu-latest }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: 1.3.10 }
+      - run: npm ci --no-audit --no-fund
+      - name: Compile
+        run: |
+          mkdir -p out
+          exe="nextfarm"; [ "${{ matrix.os }}" = windows ] && exe="nextfarm.exe"
+          bun scripts/compile.ts nextfarm ${{ matrix.target }} "out/$exe"
+          if [ "${{ matrix.os }}" = darwin ]; then codesign --force --sign - "out/$exe"; fi
+          name="nextfarm-${{ matrix.os }}-${{ matrix.arch }}"
+          if [ "${{ matrix.os }}" = windows ]; then (cd out && zip -q "../$name.zip" "$exe"); else tar -czf "$name.tar.gz" -C out "$exe"; fi
+      - name: Smoke (native targets)
+        if: matrix.os != 'windows' && !(matrix.os == 'linux' && matrix.arch == 'arm64') && !(matrix.os == 'darwin' && matrix.arch == 'x64')
+        run: ./out/nextfarm --version && ./out/nextfarm help --json > /dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.os }}-${{ matrix.arch }}
+          path: "nextfarm-${{ matrix.os }}-${{ matrix.arch }}.*"
+
+  release:
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci --no-audit --no-fund && npm run build
+      - uses: actions/download-artifact@v4
+        with: { path: dist-release, merge-multiple: true }
+      - name: Assets
+        run: |
+          cd dist-release
+          node ../dist/bin/nextfarm.js help --json --lang vi > help-vi.json
+          node ../dist/bin/nextfarm.js help --json --lang en > help-en.json
+          sha256sum -- *.tar.gz *.zip > SHA256SUMS
+          node ../scripts/package-managers.mjs "${GITHUB_REF_NAME#v}" SHA256SUMS
+          ls -la
+      - name: GitHub release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          notes="$(awk -v v="## $v" '$0==v{f=1;next} /^## /{f=0} f' CHANGELOG.md)"
+          pre=""; case "$v" in *-*) pre="--prerelease";; esac
+          gh release create "$GITHUB_REF_NAME" dist-release/* --title "$GITHUB_REF_NAME" --notes "${notes:-Release $v}" $pre
+      - uses: actions/upload-artifact@v4
+        with: { name: package-managers, path: "dist-release/nextfarm.rb\ndist-release/nextfarm.json" }
+
+  npm:
+    needs: test
+    if: vars.PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ env.TAG }}" }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, registry-url: "https://registry.npmjs.org" }
+      - run: npm install -g npm@11.6.2
+      - run: npm ci --no-audit --no-fund && npm run build
+      - run: |
+          tag=latest; case "$TAG" in *-*) tag=next;; esac
+          npm publish --provenance --access public --tag "$tag"
+
+  tap:
+    needs: release
+    if: vars.TAP_ENABLED == 'true' && !contains(github.ref_name, '-')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: app
+        with:
+          app-id: ${{ vars.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: homebrew-tap
+      - uses: actions/checkout@v4
+        with: { repository: "${{ github.repository_owner }}/homebrew-tap", token: "${{ steps.app.outputs.token }}", path: tap }
+      - uses: actions/download-artifact@v4
+        with: { name: package-managers, path: pm }
+      - name: Update formula + scoop manifest
+        run: |
+          mkdir -p tap/Formula tap/bucket
+          cp pm/nextfarm.rb tap/Formula/nextfarm.rb
+          cp pm/nextfarm.json tap/bucket/nextfarm.json
+          cd tap
+          git config user.name "NextFarm CLI Bot"
+          git config user.email "support@nextx.vn"
+          git add Formula bucket
+          git diff --cached --quiet || git commit -m "nextfarm ${GITHUB_REF_NAME}"
+          git push
