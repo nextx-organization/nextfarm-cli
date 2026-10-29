@@ -232,7 +232,7 @@ function toChunk(ev: RunEvent, out: AskOutcome, proposals: ProposedAction[]): St
       return out.done;
     case "run.cancelled":
     case "run.failed": {
-      const message = String(p.errorMessage ?? (ev.type === "run.cancelled" ? tr("Đã dừng.", "Stopped.") : tr("Trợ lý gặp lỗi, thử lại.", "The assistant failed, try again.")));
+      const message = String(p.errorMessage ?? (ev.type === "run.cancelled" ? tr("Đã dừng.", "Stopped.") : tr("Trợ lý gặp lỗi, hãy hỏi lại.", "The assistant failed, try again.")));
       out.ended = "error";
       out.done = { type: "error", code: String(p.errorCode ?? ev.type), message, text: message, runId: out.runId };
       if (!out.text) out.text = message;
@@ -363,7 +363,7 @@ export async function rejectAction(proposalId: string): Promise<void> {
 /** What `/undo` would revert: the given proposal, or the last one written from this process. */
 export function undoTarget(proposalId?: string): { proposalId: string; label: string } {
   const target = proposalId ? { proposalId, label: proposalId.slice(0, 8) } : lastWritten;
-  if (!target) throw new CliError(tr("Chưa có lần ghi nào trong phiên này để hoàn tác.", "Nothing written in this session to undo."), Exit.notFound);
+  if (!target) throw new CliError(tr("Chưa có lần ghi nào trong session này để hoàn tác.", "Nothing written in this session to undo."), Exit.notFound);
   return target;
 }
 

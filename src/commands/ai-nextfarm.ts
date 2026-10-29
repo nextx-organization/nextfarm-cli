@@ -28,7 +28,7 @@ export function registerAiNextFarm(ai: Command, program: Command): void {
       emit({ runId: rid, steps: lines }, () => info(lines.join("\n")));
     });
 
-  ai.command("apply <proposalId>").description(tr("xác nhận một đề xuất ghi (ghi thật)", "approve a proposed write (real write)"))
+  ai.command("apply <proposalId>").description(tr("xác nhận một write proposal (ghi thật)", "approve a proposed write (real write)"))
     .action(async (proposalId: string) => {
       await requirePerson();
       if (hasTty() && !(await confirm(tr(`Ghi đề xuất ${proposalId.slice(0, 8)}?`, `Write proposal ${proposalId.slice(0, 8)}?`)))) return;
@@ -38,7 +38,7 @@ export function registerAiNextFarm(ai: Command, program: Command): void {
       if (!r.success) process.exitCode = Exit.notConfirmed;
     });
 
-  ai.command("reject <proposalId>").description(tr("từ chối một đề xuất ghi", "reject a proposed write"))
+  ai.command("reject <proposalId>").description(tr("từ chối một write proposal", "reject a proposed write"))
     .action(async (proposalId: string) => {
       await nf.rejectAction(proposalId);
       ok(tr("Đã từ chối.", "Rejected."));

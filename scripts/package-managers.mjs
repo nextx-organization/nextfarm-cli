@@ -20,7 +20,6 @@ const block = (os, arch) => `      url "${url(asset(os, arch))}"\n      sha256 "
 writeFileSync(`${bin}.rb`, `class ${cls} < Formula
   desc "${desc}"
   homepage "${pkg.homepage}"
-  version "${version}"
   license "MIT"
 
   livecheck do

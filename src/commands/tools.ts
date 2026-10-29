@@ -179,7 +179,7 @@ export function registerTools(program: Command): void {
         // NextFarm has no REST door for tools: the API key speaks MCP through the gateway, which keeps its read-only route rules.
         const client = new McpClient(false, envVar("API_KEY"), `${context().endpoints.api}/api/v1/mcp`);
         const tool = (await client.listTools()).find((t) => sameTool(t.name, name));
-        if (!tool) throw new CliError(tr("Khoá này không thấy công cụ đó (thiếu phạm vi?).", "This key cannot see that tool (missing scope?)."), Exit.notFound, `${brand().bin} tools list`);
+        if (!tool) throw new CliError(tr("Khoá này không thấy công cụ đó (thiếu scope?).", "This key cannot see that tool (missing scope?)."), Exit.notFound, `${brand().bin} tools list`);
         const r = await client.callTool(tool.name, args);
         value = resultValue(r);
         if (r.isError) {
@@ -191,7 +191,7 @@ export function registerTools(program: Command): void {
       if (envVar("API_KEY")) {
         const pub = (await publicTools()).find((p) => sameTool(p.name, name));
         if (!pub) throw new CliError(tr("Không thấy công cụ công khai này.", "Public tool not found."), Exit.notFound);
-        if (pub.kind !== "read") throw new CliError(tr("Khoá API chỉ gọi được công cụ đọc.", "API keys can only call read tools."), Exit.forbidden);
+        if (pub.kind !== "read") throw new CliError(tr("API key chỉ gọi được công cụ đọc.", "API keys can only call read tools."), Exit.forbidden);
         value = await post(`/ai/tools/${pub.module}/${pub.name}/read`, args);
       } else {
         const client = new McpClient(hasTty());

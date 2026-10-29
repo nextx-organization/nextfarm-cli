@@ -75,7 +75,7 @@ const NEXTFARM: Brand = {
   example: { vi: "lô nào sắp thu hoạch tuần này", en: "which plots are due for harvest this week" },
   apiExample: "GET /gis/parcels -f page_size=5",
   notYet: [],
-  ciSettings: { vi: "Quản lý › Khoá API › CI đăng nhập không cần khoá", en: "Manage › API keys › CI login without keys" },
+  ciSettings: { vi: "Quản lý › API key › CI đăng nhập không cần khoá", en: "Manage › API keys › CI login without keys" },
   modules: null,
   hiddenModules: [],
   env: {
