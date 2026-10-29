@@ -116,6 +116,9 @@ jobs:
       - run: npm install -g npm@11.6.2
       - run: npm ci --no-audit --no-fund && npm run build
       - run: |
+          name=$(node -p 'require("./package.json").name'); version=$(node -p 'require("./package.json").version')
+          # A version already on the registry (e.g. published by hand) is not an error: skip instead of failing the release.
+          if npm view "$name@$version" version >/dev/null 2>&1; then echo "::notice::$name@$version is already on npm, skipping"; exit 0; fi
           tag=latest; case "$TAG" in *-*) tag=next;; esac
           npm publish --provenance --access public --tag "$tag"
 
@@ -130,9 +133,9 @@ jobs:
           app-id: ${{ vars.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
-          repositories: homebrew-tap
+          repositories: homebrew-nextfarm
       - uses: actions/checkout@v4
-        with: { repository: "${{ github.repository_owner }}/homebrew-tap", token: "${{ steps.app.outputs.token }}", path: tap }
+        with: { repository: "${{ github.repository_owner }}/homebrew-nextfarm", token: "${{ steps.app.outputs.token }}", path: tap }
       - uses: actions/download-artifact@v4
         with: { name: package-managers, path: pm }
       - name: Update formula + scoop manifest
@@ -142,7 +145,8 @@ jobs:
           cp pm/nextfarm.json tap/bucket/nextfarm.json
           cd tap
           git config user.name "NextFarm CLI Bot"
-          git config user.email "support@nextx.vn"
+          git config user.email "support@nextfarm.vn"
           git add Formula bucket
           git diff --cached --quiet || git commit -m "nextfarm ${GITHUB_REF_NAME}"
-          git push
+          # Several CLIs share the tap and release at the same time: rebase onto theirs and retry.
+          for i in 1 2 3 4 5; do git push && exit 0; git pull --rebase; sleep $((i * 3)); done; exit 1

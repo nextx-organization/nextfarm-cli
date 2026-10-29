@@ -1,4 +1,4 @@
-// `ci policy` — pre-approval policies that let a CI session write without a person confirming (NextFarm).
+// `ci policy` — pre-approval policies that let a CI session write without a person confirming.
 //   GET  /ai/ci-write-policies (+ /kinds) · POST /ai/ci-write-policies · POST /{id}/revoke
 // The server is the gate: a CI session applies a proposal only when every line is a kind of one active policy of that CI trust, the
 // ceiling has room and it has not expired (≤ 30 days). Devices and money never qualify. Approval happens on the web or from a
@@ -30,7 +30,14 @@ interface Policy {
 interface Trust { id: string; repository: string; provider: string; refPattern: string; revokedAt?: string | null }
 
 const BASE = "/ai/ci-write-policies";
+// Examples and the approval screen differ per platform: some write by entry kind, others by permission code.
+const exampleKinds = () => brand().examples.ciKinds;
+function approvePlace(): string {
+  if (brand().platform === "nextfarm") return tr("Quản lý › Khoá API", "Manage › API keys");
+  return tr("Thiết lập › Ứng dụng & API › CI", "Settings › Apps & API › CI");
+}
 const day = (s?: string | null) => (s ? s.slice(0, 10) : "—");
+const shortId = (id: string) => id.slice(-8);
 
 function stateLabel(s: Policy["state"]): string {
   switch (s) {
@@ -43,7 +50,11 @@ function stateLabel(s: Policy["state"]): string {
 }
 
 async function findPolicy(id: string): Promise<Policy> {
-  const p = (await get<{ items: Policy[] }>(BASE)).items.find((x) => x.id === id || x.id.startsWith(id));
+  // UUID v7 ids share their first characters (time prefix), so the table shows the LAST 8 and lookup matches either end.
+  const all = (await get<{ items: Policy[] }>(BASE)).items;
+  const hits = all.filter((x) => x.id === id || x.id.startsWith(id) || x.id.endsWith(id));
+  if (hits.length > 1) throw new CliError(tr("Mã ngắn trùng nhiều chính sách — gõ thêm ký tự.", "Short id matches several policies — type more characters."), Exit.usage);
+  const p = hits[0];
   if (!p) throw new CliError(tr("Không thấy chính sách này.", "Policy not found."), Exit.notFound);
   return p;
 }
@@ -57,10 +68,10 @@ export function registerCiPolicy(ci: Command): void {
     const { items } = await get<{ items: Policy[] }>(BASE);
     emit(items, () => info(items.length
       ? table(["ID", tr("Kho", "Repository"), tr("Được ghi", "Kinds"), tr("Đã dùng", "Used"), tr("Hết hạn", "Expires"), ""], items.map((p) => [
-          p.id.slice(0, 8), p.repository ?? p.ciTrustId.slice(0, 8), p.kinds.join(", "), `${p.usedRecords}/${p.maxRecords}`, day(p.expiresAt), stateLabel(p.state),
+          shortId(p.id), p.repository ?? shortId(p.ciTrustId), p.kinds.join(", "), `${p.usedRecords}/${p.maxRecords}`, day(p.expiresAt), stateLabel(p.state),
         ]))
-      : tr(`Chưa có chính sách — CI chỉ in link để xác nhận. Xin: ${brand().bin} ci policy request --trust <kho> --kinds field_log`,
-          `No policy — CI only prints a link to confirm. Request one: ${brand().bin} ci policy request --trust <repo> --kinds field_log`)));
+      : tr(`Chưa có chính sách — CI chỉ in link để xác nhận. Xin: ${brand().bin} ci policy request --trust <kho> --kinds ${exampleKinds()}`,
+          `No policy — CI only prints a link to confirm. Request one: ${brand().bin} ci policy request --trust <repo> --kinds ${exampleKinds()}`)));
   });
 
   policy.command("kinds").description(tr("loại ghi đưa được vào chính sách", "kinds a policy can cover")).action(async () => {
@@ -83,7 +94,7 @@ export function registerCiPolicy(ci: Command): void {
     .description(tr("xin cho một kho CI tự ghi (người quản lý khoá API duyệt; có quyền thì có hiệu lực ngay)",
       "ask to let a CI repository write (an API-key manager approves; with that permission it is active at once)"))
     .requiredOption("--trust <id|owner/repo>", tr("khai báo CI (xem: ci trust list)", "CI trust (see: ci trust list)"))
-    .requiredOption("--kinds <a,b>", tr("loại ghi, vd field_log,task (xem: ci policy kinds)", "kinds, e.g. field_log,task (see: ci policy kinds)"))
+    .requiredOption("--kinds <a,b>", tr("loại ghi (xem: ci policy kinds)", "kinds (see: ci policy kinds)"))
     .option("--max <n>", tr("trần số bản ghi (1–1000)", "record ceiling (1–1000)"), "50")
     .option("--expires <dur>", tr("thời hạn tối đa 30d", "lifetime, at most 30d"), "14d")
     .option("--note <text>")
@@ -102,15 +113,15 @@ export function registerCiPolicy(ci: Command): void {
         ok(p.state === "active"
           ? tr(`CI của ${trust.repository} được tự ghi ${p.kinds.join(", ")} — tối đa ${p.maxRecords} bản ghi tới ${day(p.expiresAt)}.`,
             `CI of ${trust.repository} may write ${p.kinds.join(", ")} — up to ${p.maxRecords} records until ${day(p.expiresAt)}.`)
-          : tr(`Đã gửi duyệt (${p.id.slice(0, 8)}). Người quản lý duyệt tại ${context().endpoints.app} › Quản lý › Khoá API.`,
-            `Sent for approval (${p.id.slice(0, 8)}). A manager approves in ${context().endpoints.app} › Manage › API keys.`));
+          : tr(`Đã gửi duyệt (${shortId(p.id)}). Người quản lý duyệt tại ${context().endpoints.app} › ${approvePlace()}.`,
+            `Sent for approval (${shortId(p.id)}). A manager approves in ${context().endpoints.app} › ${approvePlace()}.`));
       });
     });
 
   policy.command("revoke <id>").description(tr("thu hồi (lượt ghi kế tiếp quay về chỉ in link)", "revoke (the next write goes back to a link)"))
     .action(async (id: string) => {
       const p = await findPolicy(id);
-      if (hasTty() && !(await confirm(tr(`Thu hồi chính sách của ${p.repository ?? p.id.slice(0, 8)}?`, `Revoke the policy for ${p.repository ?? p.id.slice(0, 8)}?`)))) return;
+      if (hasTty() && !(await confirm(tr(`Thu hồi chính sách của ${p.repository ?? shortId(p.id)}?`, `Revoke the policy for ${p.repository ?? shortId(p.id)}?`)))) return;
       await post(`${BASE}/${p.id}/revoke`, {});
       ok(tr("Đã thu hồi.", "Revoked."));
     });

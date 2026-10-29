@@ -48,7 +48,7 @@ export interface ProposedAction {
   estimatedCost?: number | null;
   costCurrency?: string | null;
   proposalJson?: string | null;
-  /** Set by platforms that know the risk better than the kind regex (NextFarm: per entry line). */
+  /** Set by platforms that know the risk better than the kind regex (e.g. per entry line). */
   risk?: Risk;
 }
 
@@ -95,16 +95,42 @@ export interface InitResult {
   messages?: { id: string; role: string; text: string; createdAt: string; blocks?: AnswerBlock[] | null }[] | null;
 }
 
-export const openConversation = (forceNew: boolean) => farm() ? nf.openConversation(forceNew) : post<InitResult>(`${BASE}/init`, { forceNew });
-export const listConversations = (limit = 30) => farm() ? nf.listConversations(limit) : get<Conversation[]>(`${BASE}/conversations`, { query: { limit } });
-export const renameConversation = (id: string, title: string | null) => farm() ? nf.renameConversation(id, title) : patch(`${BASE}/conversations/${id}/title`, { title });
-export const pinConversation = (id: string, pinned: boolean) => farm() ? nf.pinConversation(id, pinned) : put(`${BASE}/conversations/${id}/pin`, { pinned });
-export const deleteConversation = (id: string) => farm() ? nf.deleteConversation(id) : del(`${BASE}/conversations/${id}`);
-export const history = (sessionId: string) => farm() ? nf.history(sessionId) : get<InitResult["messages"]>(`${BASE}/history`, { query: { sessionId } });
-export const feedback = (messageId: string, helpful: boolean) => farm() ? nf.feedback(messageId, helpful) : post(`${BASE}/messages/${messageId}/feedback`, { helpful });
-export const escalate = (sessionId: string, topic: string) => farm() ? nf.escalate(sessionId, topic) : post<{ estimatedWaitMinutes: number; status: string }>(`${BASE}/escalate`, { sessionId, topic });
-export const usage = (): Promise<{ planName?: string; used?: number; limit?: number; remaining?: number; resetsAt?: string; enforced?: boolean }> =>
-  farm() ? nf.usage() : get(`${BASE}/usage`);
+export const openConversation = (forceNew: boolean) => {
+  if (farm()) return nf.openConversation(forceNew);
+  return post<InitResult>(`${BASE}/init`, { forceNew });
+};
+export const listConversations = (limit = 30) => {
+  if (farm()) return nf.listConversations(limit);
+  return get<Conversation[]>(`${BASE}/conversations`, { query: { limit } });
+};
+export const renameConversation = (id: string, title: string | null) => {
+  if (farm()) return nf.renameConversation(id, title);
+  return patch(`${BASE}/conversations/${id}/title`, { title });
+};
+export const pinConversation = (id: string, pinned: boolean) => {
+  if (farm()) return nf.pinConversation(id, pinned);
+  return put(`${BASE}/conversations/${id}/pin`, { pinned });
+};
+export const deleteConversation = (id: string) => {
+  if (farm()) return nf.deleteConversation(id);
+  return del(`${BASE}/conversations/${id}`);
+};
+export const history = (sessionId: string) => {
+  if (farm()) return nf.history(sessionId);
+  return get<InitResult["messages"]>(`${BASE}/history`, { query: { sessionId } });
+};
+export const feedback = (messageId: string, helpful: boolean) => {
+  if (farm()) return nf.feedback(messageId, helpful);
+  return post(`${BASE}/messages/${messageId}/feedback`, { helpful });
+};
+export const escalate = (sessionId: string, topic: string) => {
+  if (farm()) return nf.escalate(sessionId, topic);
+  return post<{ estimatedWaitMinutes: number; status: string }>(`${BASE}/escalate`, { sessionId, topic });
+};
+export const usage = (): Promise<{ planName?: string; used?: number; limit?: number; remaining?: number; resetsAt?: string; enforced?: boolean }> => {
+  if (farm()) return nf.usage();
+  return get(`${BASE}/usage`);
+};
 
 export interface ConfirmResult {
   success: boolean;
@@ -116,8 +142,10 @@ export interface ConfirmResult {
   blocks?: AnswerBlock[] | null;
 }
 
-export const confirmAction = (sessionId: string, a: ProposedAction): Promise<ConfirmResult> => farm() ? nf.confirmAction(sessionId, a) :
-  post<ConfirmResult>(`${BASE}/${sessionId}/confirm-action`, { kind: a.kind, payloadJson: a.payloadJson, nonce: a.nonce });
+export const confirmAction = (sessionId: string, a: ProposedAction): Promise<ConfirmResult> => {
+  if (farm()) return nf.confirmAction(sessionId, a);
+  return post<ConfirmResult>(`${BASE}/${sessionId}/confirm-action`, { kind: a.kind, payloadJson: a.payloadJson, nonce: a.nonce });
+};
 
 // ── Attachments ─────────────────────────────────────────────────────────────────────────────────────
 
@@ -224,9 +252,9 @@ export interface AskOutcome {
   activities: ActivityDto[];
   proposedAction?: ProposedAction;
   ended: "done" | "error" | "escalate" | "delivered_to_agent";
-  /** Conversation the answer belongs to, when the server created one for this question (NextFarm). */
+  /** Conversation the answer belongs to, when the server created one for this question. */
   sessionId?: string;
-  /** Choices of a clarifying question, offered as numbered follow-ups (NextFarm). */
+  /** Choices of a clarifying question, offered as numbered follow-ups. */
   followUps?: string[];
 }
 
@@ -325,7 +353,7 @@ async function* sse(stream: AsyncIterable<Uint8Array>): AsyncGenerator<StreamChu
 
 // ── Write risk ──────────────────────────────────────────────────────────────────────────────────────
 
-/** device = pumps, valves, drones, automation rules (NextFarm). Like finance, never confirmed from the terminal. */
+/** device = pumps, valves, drones, automation rules. Like finance, never confirmed from the terminal. */
 export type Risk = "normal" | "large" | "finance" | "device";
 
 const FINANCE = /payment|invoice|einvoice|finance|refund|payout|wallet|billing|thanh.?toan|hoa.?don|tien/i;

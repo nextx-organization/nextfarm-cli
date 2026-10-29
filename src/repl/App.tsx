@@ -341,7 +341,7 @@ export function App(props: AppProps) {
   }
 
   // ── slash commands ────────────────────────────────────────────────────────────────────────────
-  /** NextFarm versions of the slash commands whose server contract differs. True = handled. */
+  /** Platform versions of the slash commands whose server contract differs. True = handled. */
   async function farmSlash(cmd: string, arg: string): Promise<boolean> {
     switch (cmd) {
       case "undo": {

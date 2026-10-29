@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.1
+
+- Homebrew: NextFarm now has its own tap. Install with `brew install nextx-organization/nextfarm/nextfarm` (Scoop: `scoop bucket add nextfarm https://github.com/nextx-organization/homebrew-nextfarm`).
+- `nextfarm ci policy list` shows the last 8 characters of each id (policies created together share the first ones); `show` and `revoke` accept either end and stop when a short id matches several policies.
+
 ## 0.3.0
 
 - CI writes under a pre-approval policy. A `nextfarm login --ci` run now applies a proposed farm write on its own when a policy of that repository covers every line, has room under its record ceiling and has not expired (30 days at most); otherwise nothing is written and the run prints the link to confirm, as before. The server enforces this, not the CLI. Devices, irrigation, money and high-risk lines always need a person in the app. With `--json`, the result is under `proposals[0].applied`.

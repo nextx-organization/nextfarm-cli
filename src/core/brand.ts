@@ -1,9 +1,13 @@
 // One codebase, several branded binaries. The entry file (src/bin/<brand>.ts) picks the brand before
 // anything else is imported; every user-facing name, host and storage location comes from here.
 
-export type BrandId = "nextx" | "gymmaster" | "nextfarm";
-/** Which backend contract the brand talks to. NextFarm has its own assistant and proposal APIs; the other brands share the default one. */
-export type PlatformId = "nextx" | "nextfarm";
+export type BrandId = "nextx"
+  | "nextfarm"
+  ;
+/** Which backend contract the brand talks to. A platform may have its own assistant and proposal APIs; most brands share the default one. */
+export type PlatformId = "nextx"
+  | "nextfarm"
+  ;
 export type EnvName = "prod" | "sandbox";
 
 export interface Endpoints {
@@ -38,6 +42,8 @@ export interface Brand {
   envPrefix: string;
   /** Mobile app name for QR login. */
   mobileApp: string;
+  /** Examples shown in help: permission codes for `keys create --scopes`, and what a CI write policy covers. */
+  examples: { scopes: string; ciKinds: string; modules: string };
   /** A typical first question, shown in hints. */
   example: { vi: string; en: string };
   /** A real request for `api --help`, valid on this brand's gateway. */
@@ -46,14 +52,15 @@ export interface Brand {
   notYet?: ("device" | "ci")[];
   /** Where an admin allows a CI repository, after the web app address. */
   ciSettings: { vi: string; en: string };
-  /** Modules this brand exposes. null = all. */
+  /** Modules this brand exposes. null = all except `hiddenModules`. */
   modules: string[] | null;
+  /** Modules never shown: a broad brand hides the niche products that sell on their own; a niche brand shows everything else. */
+  hiddenModules: string[];
   env: Record<EnvName, Endpoints>;
 }
 
 
 
-// <brand:nextfarm>
 const NEXTFARM: Brand = {
   id: "nextfarm",
   platform: "nextfarm",
@@ -64,11 +71,13 @@ const NEXTFARM: Brand = {
   clientId: "nextfarm-cli",
   envPrefix: "NEXTFARM",
   mobileApp: "NextFarm",
+  examples: { scopes: "gis.parcels.view,iot.devices.view", ciKinds: "field_log", modules: "gis, iot, office…" },
   example: { vi: "lô nào sắp thu hoạch tuần này", en: "which plots are due for harvest this week" },
   apiExample: "GET /gis/parcels -f page_size=5",
   notYet: [],
   ciSettings: { vi: "Quản lý › Khoá API › CI đăng nhập không cần khoá", en: "Manage › API keys › CI login without keys" },
   modules: null,
+  hiddenModules: [],
   env: {
     prod: {
       api: "https://api-prod.nextfarm.vn",
@@ -88,11 +97,10 @@ const NEXTFARM: Brand = {
     },
   },
 };
-// </brand:nextfarm>
 
 // Exported trees keep only their own brand (scripts/export.sh strips the other block and its line here).
 const BRANDS: Partial<Record<BrandId, Brand>> = {
-  nextfarm: NEXTFARM, // <brand-line:nextfarm>
+  nextfarm: NEXTFARM,
 };
 
 let current: Brand = Object.values(BRANDS)[0]!;
@@ -110,4 +118,11 @@ export function brand(): Brand {
 export function envVar(name: string): string | undefined {
   const v = process.env[`${current.envPrefix}_${name}`];
   return v === undefined || v === "" ? undefined : v;
+}
+
+/** Whether a module (or `module:scope`, `module.resource.action`) is shown by the current brand. */
+export function visibleModule(code: string): boolean {
+  const m = code.split(/[.:]/)[0]!.toLowerCase();
+  const b = brand();
+  return !b.hiddenModules.includes(m) && (!b.modules || b.modules.includes(m));
 }

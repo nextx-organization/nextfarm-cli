@@ -92,7 +92,7 @@ export function proposalCard(a: ProposedAction): string[] {
 
 /**
  * NextFarm session from `login --ci` with no terminal: the server, not the CLI, decides whether a write goes through
- * (pre-approval policy of that CI trust). The default platform gates CI writes per trust scope instead (ci trust set --allow, below).
+ * (pre-approval policy of that CI trust). The default platform sends the confirmation and its server applies the same policy model.
  */
 function ciPolicyApplies(): boolean {
   return brand().platform === "nextfarm" && !hasTty() && nf.isCiSession();
@@ -103,14 +103,20 @@ function ciPolicyApplies(): boolean {
  * Rules (docs §2.6): read mode never writes; finance never from the terminal; no TTY ⇒ never;
  * large writes need the typed number; auto mode skips the y/N for normal writes only.
  */
-/** Thẻ đăng nhập CI (login --ci): không có người bấm, máy chủ quyết theo phạm vi quản trị duyệt trước (ci trust set --allow). */
+/** A `login --ci` session has nobody to press confirm: the server decides from the pre-approval policy (`ci policy`). */
 async function isCiSession(): Promise<boolean> {
   const { currentAuth } = await import("../auth/session.js");
   const a = await currentAuth().catch(() => undefined);
   return a?.kind === "session" && a.session.via === "ci";
 }
 
-/** 403 của cổng ghi CI ⇒ việc chưa ghi, đề xuất còn chờ người duyệt — báo rõ, không coi là lỗi chương trình. */
+/** Command a person runs to confirm later: reopen the conversation, or confirm by proposal id where the platform supports it. */
+function confirmHint(nonce: string, conversationId: string): string {
+  if (brand().platform === "nextfarm") return `${brand().bin} ai apply ${nonce}`;
+  return `${brand().bin} -r ${conversationId}`;
+}
+
+/** A 403 from the CI write gate means nothing was written and the proposal still waits for a person — report it, not as a crash. */
 function ciDenied(e: unknown): string | undefined {
   const err = e as CliError;
   return err instanceof CliError && err.exitCode === Exit.forbidden ? err.message : undefined;
@@ -122,8 +128,9 @@ export async function handleProposal(sessionId: string, a: ProposedAction, mode 
     return { written: false, message: r.message };
   }
   const risk = riskOf(a);
-  // NextFarm proposals are confirmed by id; the default platform's by reopening the conversation.
-  const resume = brand().platform === "nextfarm" ? `${brand().bin} ai apply ${a.nonce}` : `${brand().bin} -r ${sessionId}`;
+  // On the default platform a proposal is confirmed by reopening the conversation.
+  let resume = `${brand().bin} -r ${sessionId}`;
+  if (brand().platform === "nextfarm") resume = `${brand().bin} ai apply ${a.nonce}`;
   if (mode === "read") {
     info(c.dim(tr("  Chế độ chỉ đọc: không ghi. Đổi chế độ: --mode propose", "  Read-only mode: nothing written. Switch with --mode propose")));
     return { written: false };
@@ -145,8 +152,8 @@ export async function handleProposal(sessionId: string, a: ProposedAction, mode 
       } else warn(r.message);
       return { written: r.written, message: r.message };
     }
-    // CI + --mode auto: gửi Xác nhận, máy chủ chỉ ghi trong phạm vi quản trị đã duyệt trước cho kho này.
-    if (brand().platform !== "nextfarm" && mode === "auto" && (await isCiSession())) {
+    // CI + --mode auto: send the confirmation; the server writes only within this repository's pre-approval policy (ci policy).
+    if (brand().platform === "nextx" && mode === "auto" && (await isCiSession())) {
       try {
         const r = await confirmAction(sessionId, a);
         if (r.success) ok(r.message || tr("Đã ghi (CI, trong phạm vi duyệt trước).", "Written (CI, within the pre-approved scope)."));
@@ -156,6 +163,7 @@ export async function handleProposal(sessionId: string, a: ProposedAction, mode 
         const why = ciDenied(e);
         if (!why) throw e;
         info(`  ${c.yellow("⚠")} ${why}`);
+        info(c.dim(tr(`  Cho CI tự ghi: ${brand().bin} ci policy request`, `  Let CI write: ${brand().bin} ci policy request`)));
         return { written: false, message: why };
       }
     }
@@ -283,18 +291,17 @@ async function printAsk(o: RootFlags, question: string, piped: string): Promise<
   if (fmt === "json") {
     const risk = proposal ? riskOf(proposal) : undefined;
     const allowedRisk = context().mode !== "read" && risk !== "finance" && risk !== "device";
-    const applied = proposal?.writes && ciPolicyApplies() && allowedRisk
-      ? await nf.applyUnderCiPolicy(proposal)
-      // Nền tảng mặc định: phiên CI + --mode auto ⇒ gửi Xác nhận, máy chủ gác theo phạm vi ci trust (403 ⇒ chưa ghi, kèm lý do).
-      : proposal?.writes && brand().platform !== "nextfarm" && allowedRisk && context().mode === "auto" && !hasTty() && (await isCiSession())
-        ? await confirmAction(conversationId, proposal).then(
-            (r) => ({ written: r.success, message: r.message }),
-            (e: unknown) => {
-              const why = ciDenied(e);
-              if (!why) throw e;
-              return { written: false, message: why };
-            })
-        : undefined;
+    let applied: { written: boolean; message: string } | undefined;
+    if (proposal?.writes && ciPolicyApplies() && allowedRisk) applied = await nf.applyUnderCiPolicy(proposal);
+    // CI session with --mode auto: send the confirmation; the server writes only within a pre-approval policy (403 = not written, with the reason).
+    if (!applied && proposal?.writes && brand().platform === "nextx" && allowedRisk && context().mode === "auto" && !hasTty() && (await isCiSession()))
+      applied = await confirmAction(conversationId, proposal).then(
+        (r) => ({ written: r.success, message: r.message }),
+        (e: unknown) => {
+          const why = ciDenied(e);
+          if (!why) throw e;
+          return { written: false, message: why };
+        });
     written = applied?.written ?? false;
     json({
       conversationId,
@@ -306,7 +313,7 @@ async function printAsk(o: RootFlags, question: string, piped: string): Promise<
       notices: outcome.notices,
       agent: outcome.agent ?? null,
       proposals: proposal ? [{ kind: proposal.kind, label: proposal.label, prompt: proposal.confirmPrompt, writes: proposal.writes, expiresAt: proposal.expiresAt ?? null, risk: riskOf(proposal),
-        confirm: brand().platform === "nextfarm" ? `${brand().bin} ai apply ${proposal.nonce}` : `${brand().bin} -r ${conversationId}`,
+        confirm: confirmHint(proposal.nonce, conversationId),
         ...(applied ? { applied: { written: applied.written, message: applied.message } } : {}) }] : [],
       workspace: getProfile(context().profile)?.workspaceCode ?? null,
       env: context().env,

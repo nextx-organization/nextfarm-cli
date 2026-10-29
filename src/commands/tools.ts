@@ -1,7 +1,7 @@
 import { Option, type Command } from "commander";
 import { readFileSync } from "node:fs";
 import { context } from "../core/context.js";
-import { brand, envVar } from "../core/brand.js";
+import { brand, envVar, visibleModule } from "../core/brand.js";
 import { CliError, Exit } from "../core/errors.js";
 import { currentLang, tr } from "../core/i18n.js";
 import { c, emit, info, json, ok, table } from "../core/output.js";
@@ -26,9 +26,14 @@ export interface PublicTool {
 let publicCache: PublicTool[] | undefined;
 
 export async function publicTools(): Promise<PublicTool[]> {
-  publicCache ??= (brand().platform === "nextfarm" ? await nextFarmPublicTools() : await get<PublicTool[]>("/ai/public/tools", { anonymous: true }))
-    .filter((t) => !brand().modules || brand().modules!.includes(t.module));
+  publicCache ??= (await loadPublicTools())
+    .filter((t) => visibleModule(t.module));
   return publicCache;
+}
+
+async function loadPublicTools(): Promise<PublicTool[]> {
+  if (brand().platform === "nextfarm") return nextFarmPublicTools();
+  return get<PublicTool[]>("/ai/public/tools", { anonymous: true });
 }
 
 /** NextFarm: `{ version, tools: [{ name, service, scope, title, title_en, summary, summary_en, parameters, example_args }] }`, read verbatim so schema property names stay as the tool expects them. */
@@ -114,7 +119,7 @@ export function registerTools(program: Command): void {
 
   tools.command("list", { isDefault: true })
     .description(tr("danh sách công cụ", "list tools"))
-    .option("--module <m>", tr("lọc theo phân hệ (crm, sales, gym…)", "filter by module (crm, sales, gym…)"))
+    .option("--module <m>", tr(`lọc theo phân hệ (${brand().examples.modules})`, `filter by module (${brand().examples.modules})`))
     .addOption(new Option("--kind <k>", tr("lọc theo loại", "filter by kind")).choices(["read", "proposal", "export"]))
     .option("--public", tr("danh mục công khai (không cần đăng nhập)", "public catalog (no login)"))
     .action(async (o: { module?: string; kind?: string; public?: boolean }) => {
@@ -182,7 +187,8 @@ export function registerTools(program: Command): void {
           process.exitCode = Exit.general;
           return;
         }
-      } else if (envVar("API_KEY")) {
+      } else
+      if (envVar("API_KEY")) {
         const pub = (await publicTools()).find((p) => sameTool(p.name, name));
         if (!pub) throw new CliError(tr("Không thấy công cụ công khai này.", "Public tool not found."), Exit.notFound);
         if (pub.kind !== "read") throw new CliError(tr("Khoá API chỉ gọi được công cụ đọc.", "API keys can only call read tools."), Exit.forbidden);

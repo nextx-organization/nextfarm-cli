@@ -1,4 +1,3 @@
-// <brand:nextfarm>
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
@@ -88,4 +87,3 @@ test("kiểm chữ ký X-Nextfarm-Signature (sha256=HMAC(ts.body))", async () =>
   assert.equal(verifySignature(secret, body + " ", { "X-Nextfarm-Signature": sig, "X-Nextfarm-Timestamp": ts }).ok, false);
   setBrand("nextx");
 });
-// </brand:nextfarm>

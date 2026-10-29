@@ -10,6 +10,18 @@ import { VERSION } from "./version.js";
 import { snakeOnWire, snakeKeys, camelKeys } from "./case.js";
 import { currentAuth, refreshSession, type Auth } from "../auth/session.js";
 
+/** Key case on the wire: some services speak snake_case; the CLI keeps camelCase inside. */
+function toWire(url: string, body: unknown): unknown {
+  if (snakeOnWire(url)) return snakeKeys(body);
+  void url;
+  return body;
+}
+function fromWire(url: string, body: unknown): unknown {
+  if (snakeOnWire(url)) return camelKeys(body);
+  void url;
+  return body;
+}
+
 setGlobalDispatcher(new EnvHttpProxyAgent());
 
 export const userAgent = () => `${brand().bin}-cli/${VERSION} (${platform()}; ${arch()}; node ${process.versions.node})`;
@@ -30,7 +42,7 @@ export interface RequestOptions {
   /** Do not throw on these statuses; caller inspects the response. */
   allow?: number[];
   signal?: AbortSignal;
-  /** Send and return keys exactly as given (the raw `api` command). Otherwise NextFarm snake services are converted. */
+  /** Send and return keys exactly as given (the raw `api` command). Otherwise services that speak another key case are converted. */
   verbatim?: boolean;
 }
 
@@ -78,7 +90,7 @@ async function send(method: string, url: string, opts: RequestOptions, auth: Aut
     // Multipart: undici sets the boundary itself, so no Content-Type here.
     if (opts.body instanceof FormData || typeof opts.body === "string") body = opts.body;
     else {
-      body = JSON.stringify(!opts.verbatim && snakeOnWire(url) ? snakeKeys(opts.body) : opts.body);
+      body = JSON.stringify(opts.verbatim ? opts.body : toWire(url, opts.body));
       headers["Content-Type"] ??= "application/json";
     }
   }
@@ -181,7 +193,7 @@ export async function request<T = unknown>(method: string, path: string, opts: R
   const requestId = res.headers.get("x-request-id") ?? undefined;
   if (opts.raw) return { status: res.status, data: res as unknown as T, headers: res.headers as unknown as Headers, requestId };
   const body = await readBody(res);
-  const data = !opts.verbatim && snakeOnWire(res.url || path) ? camelKeys(body) : body;
+  const data = opts.verbatim ? body : fromWire(res.url || path, body);
   if (!res.ok && !opts.allow?.includes(res.status)) throw errorFor(res.status, data, res);
   return { status: res.status, data: data as T, headers: res.headers as unknown as Headers, requestId };
 }
